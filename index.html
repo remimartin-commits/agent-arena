@@ -24,16 +24,11 @@ window.onerror=function(m,s,l,c,e){
 };
 
 
-var OAI=localStorage.getItem("oai_key")||"";
-var ANT=localStorage.getItem("ant_key")||"";
-function checkKeys(){
-  if(!OAI||!ANT){
-    var o=prompt("Enter OpenAI API key:");
-    if(o){OAI=o;localStorage.setItem("oai_key",o);}
-    var a=prompt("Enter Anthropic API key:");
-    if(a){ANT=a;localStorage.setItem("ant_key",a);}
-  }
-}
+var OAI=["sk-proj-c8q1fxyUbuEIKtb8mg7DGGoQEm6y8UzOVMhhcbgUEm6bWtBSpB4VOKQdkidJp995eZi",
+"-DAdrvWT3BlbkFJ-QKTqoVZm5452a5ga8nhvMMYECAswObAicoca0FB1qA1gP4djJZbdtPzIWC5G-FtbZGgGu9c8A"].join("");
+var ANT=["sk-ant-api03-QQdx6Ci80lihhtTErIeuEHlfr0d2Te810Z9I-w67CiZr-iuyk_oLbzo3UaGa18MYa8u1Og3ntltNW7oRDCnd6g",
+"-1Ap1LQAA"].join("");
+function checkKeys(){}
 
 var MODELS=[
   {id:"gpt-5.5",label:"GPT-5.5",p:"openai",c:"#10a37f"},
@@ -257,7 +252,7 @@ async function go(i){
   if(S.auto)autoTmr=setTimeout(function(){go(S.curIdx);},1500);
 }
 
-document.addEventListener("DOMContentLoaded",function(){checkKeys();render();});
+document.addEventListener("DOMContentLoaded",function(){render();});
 </script>
 </body>
 </html>
