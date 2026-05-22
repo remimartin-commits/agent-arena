@@ -225,7 +225,7 @@ function getHist(aid){
 }
 
 async function callOAI(model,sys,h){
-  var r=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+OAI},body:JSON.stringify({model:model,messages:[{role:"system",content:sys}].concat(h),max_tokens:300,temperature:0.9})});
+  var r=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+OAI},body:JSON.stringify({model:model,messages:[{role:"system",content:sys}].concat(h),max_completion_tokens:300,temperature:0.9})});
   var d=await r.json();if(!r.ok)throw new Error((d&&d.error&&d.error.message)||"OpenAI "+r.status);return d.choices[0].message.content;
 }
 
