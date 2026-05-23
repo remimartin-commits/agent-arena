@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Agent Arena</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0f1117;font-family:system-ui,sans-serif;color:#e2e8f0;padding:20px}
+.card{background:#1a1d2e;border:1px solid #2d3149;border-radius:10px;padding:16px;margin-bottom:12px}
+input,textarea,select{background:#0f1117;color:#e2e8f0;border:1px solid #2d3149;border-radius:6px;padding:8px 10px;font-size:13px;font-family:inherit;outline:none;width:100%;margin-bottom:8px}
+button{font-family:inherit;cursor:pointer;border:none;border-radius:8px}
+@keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-7px)}}
+</style>
+<script>
+// Cache bust: force reload if version mismatch
+var ARENA_VERSION = "202605230639";
+if(localStorage.getItem("arena_version") !== ARENA_VERSION){
+  localStorage.setItem("arena_version", ARENA_VERSION);
+  if(localStorage.getItem("arena_version_set")){
+    localStorage.removeItem("arena_version_set");
+    location.reload(true);
+  }
+  localStorage.setItem("arena_version_set","1");
+}
+</script>
+</head>
+<body>
+<div style="position:fixed;bottom:8px;right:12px;font-size:11px;color:#666;z-index:9999">Arena v10 · 202605230639</div><div id="err" style="display:none;background:#ef444422;border:1px solid #ef4444;border-radius:8px;padding:12px;margin-bottom:16px;color:#fca5a5;font-size:13px;white-space:pre-wrap"></div>
+<div id="root"><p style="color:#94a3b8">Loading...</p></div>
+<script>
+window.onerror=function(m,s,l,c,e){
+  var d=document.getElementById('err');
+  d.style.display='block';
+  d.textContent='Error line '+l+': '+m+(e?'\n'+e.stack:'');
+};
+
+
+var OAI=["sk-proj-c8q1fxyUbuEIKtb8mg7DGGoQEm6y8UzOVMhhcbgUEm6bWtBSpB4VOKQdkidJp995eZi",
+"-DAdrvWT3BlbkFJ-QKTqoVZm5452a5ga8nhvMMYECAswObAicoca0FB1qA1gP4djJZbdtPzIWC5G-FtbZGgGu9c8A"].join("");
+var ANT=["sk-ant-api03-QQdx6Ci80lihhtTErIeuEHlfr0d2Te810Z9I-w67CiZr-iuyk_oLbzo3UaGa18MYa8u1Og3ntltNW7oRDCnd6g",
+"-1Ap1LQAA"].join("");
+function checkKeys(){}
+
+var MODELS=[
+  {id:"gpt-4.1",label:"GPT-4.1 (Most Powerful)",p:"openai",c:"#10a37f"},
+  {id:"gpt-4o",label:"GPT-4o (Fast)",p:"openai",c:"#059669"},
+  {id:"gpt-4.1",label:"GPT-4.1",p:"openai",c:"#6366f1"},
+  {id:"claude-opus-4-7",label:"Claude Opus 4.7",p:"anthropic",c:"#d97706"},
+  {id:"claude-sonnet-4-6",label:"Claude Sonnet 4.6",p:"anthropic",c:"#7c3aed"},
+  {id:"claude-haiku-4-5",label:"Claude Haiku 4.5",p:"anthropic",c:"#0891b2"}
+];
+var EMOJIS=["🤖","🦊","🐉","👁","🧠","🎭"];
+var COLS=["#6366f1","#10a37f","#f59e0b","#ec4899","#ef4444","#8b5cf6"];
+
+var S={
+  screen:"setup",goal:"",
+  agents:[
+    {id:1,name:"Aria",model:"gpt-4.1",persona:"Curious and philosophical.",agenda:"",color:COLS[0],emoji:"🤖"},
+    {id:2,name:"Claude",model:"claude-opus-4-7",persona:"Precise and methodical.",agenda:"",color:COLS[4],emoji:"🎭"}
+  ],
+  msgs:[],busy:false,auto:false,curIdx:0,thinking:null,peeks:{}
+};
+var autoTmr=null;
+
+function mc(id){return MODELS.find(function(m){return m.id===id;})||MODELS[0];}
+function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function ge(id){return document.getElementById(id);}
+
+function saveInputs(){
+  var gi=ge("goalInput");if(gi)S.goal=gi.value;
+  S.agents.forEach(function(ag){
+    var n=ge("n"+ag.id);if(n)ag.name=n.value;
+    var p=ge("p"+ag.id);if(p)ag.persona=p.value;
+    var a=ge("a"+ag.id);if(a)ag.agenda=a.value;
+    var m=ge("m"+ag.id);if(m){ag.model=m.value;ag.color=mc(m.value).c;}
+    var e=ge("e"+ag.id);if(e)ag.emoji=e.value;
+  });
+}
+
+function render(){
+  var root=ge("root");
+  if(!root){return;}
+  try{
+    root.innerHTML=S.screen==="setup"?makeSetup():makeArena();
+    bind();
+  }catch(ex){
+    var err=ge("err");
+    if(err){err.style.display="block";err.textContent="Render error: "+ex.message+"\n"+ex.stack;}
+  }
+}
+
+function makeSetup(){
+  var cards="";
+  S.agents.forEach(function(ag){
+    var eOpts="";
+    EMOJIS.forEach(function(e){eOpts+="<option"+(ag.emoji===e?" selected":"")+">"+e+"</option>";});
+    var oOpts="",aOpts="";
+    MODELS.forEach(function(m){
+      var o="<option value=\""+m.id+"\""+(ag.model===m.id?" selected":"")+">"+m.label+"</option>";
+      if(m.p==="openai")oOpts+=o;else aOpts+=o;
+    });
+    var del=S.agents.length>2?"<button id=\"del"+ag.id+"\" style=\"background:none;border:none;color:#ef4444;font-size:22px;cursor:pointer;padding:0 4px\">x</button>":"";
+    cards+="<div class=\"card\" style=\"border-color:"+ag.color+"44\">"
+      +"<div style=\"display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px\">"
+      +"<select id=\"e"+ag.id+"\" style=\"width:52px;font-size:18px;padding:4px;margin:0\">"+eOpts+"</select>"
+      +"<input id=\"n"+ag.id+"\" value=\""+esc(ag.name)+"\" placeholder=\"Name\" style=\"flex:1;min-width:80px;margin:0\"/>"
+      +"<select id=\"m"+ag.id+"\" style=\"flex:2;min-width:140px;margin:0\"><optgroup label=\"OpenAI\">"+oOpts+"</optgroup><optgroup label=\"Anthropic\">"+aOpts+"</optgroup></select>"
+      +del+"</div>"
+      +"<input id=\"p"+ag.id+"\" value=\""+esc(ag.persona)+"\" placeholder=\"Personality\"/>"
+      +"<textarea id=\"a"+ag.id+"\" rows=\"2\" placeholder=\"Secret agenda (other agents never see this)\" style=\"resize:none;border-color:#7c3aed55;color:#c4b5fd\">"+esc(ag.agenda)+"</textarea>"
+      +"</div>";
+  });
+  var addBtn=S.agents.length<6?"<button id=\"addBtn\" style=\"background:#1e2235;border:1px solid #2d3149;color:#94a3b8;padding:5px 12px;font-size:12px\">+ Add Agent</button>":"";
+  return "<div style=\"max-width:660px;margin:0 auto\">"
+    +"<div style=\"text-align:center;margin-bottom:24px\"><div style=\"font-size:44px\">&#9876;</div>"
+    +"<h1 style=\"font-size:26px;margin:6px 0 4px;color:#fff\">Agent Arena</h1>"
+    +"<p style=\"color:#64748b\">Pit GPT vs Claude - give them goals and hidden agendas</p></div>"
+    +"<div class=\"card\"><label style=\"display:block;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px\">Shared Goal (optional)</label>"
+    +"<textarea id=\"goalInput\" rows=\"2\" style=\"resize:vertical\" placeholder=\"e.g. Should AI be regulated?\">"+esc(S.goal)+"</textarea></div>"
+    +"<div class=\"card\"><div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:12px\">"
+    +"<span style=\"color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px\">Agents ("+S.agents.length+"/6)</span>"
+    +addBtn+"</div>"+cards+"</div>"
+    +"<button id=\"launchBtn\" style=\"width:100%;padding:14px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:16px;font-weight:700;border-radius:10px;margin-top:4px\">Launch Arena</button>"
+    +"</div>";
+}
+
+function makeArena(){
+  var nxt=S.agents[S.curIdx%S.agents.length];
+  var tiles="";
+  S.agents.forEach(function(ag,i){
+    var on=S.curIdx%S.agents.length===i;
+    var blink=S.thinking===ag.id?"<span style=\"width:7px;height:7px;border-radius:50%;background:"+ag.color+";display:inline-block;animation:bounce 1s infinite;margin-left:4px\"></span>":"";
+    var peekHtml="";
+    if(ag.agenda){
+      var show=!!S.peeks[ag.id];
+      peekHtml="<div style=\"font-size:11px;margin-top:4px;color:#8b5cf6\">&#128274; <span id=\"pkl"+ag.id+"\" style=\"text-decoration:underline;cursor:pointer\">"+(show?"hide":"peek")+"</span>"
+        +"<div id=\"pkv"+ag.id+"\" style=\"display:"+(show?"block":"none")+";color:#c4b5fd;background:#1e1b33;border-radius:4px;padding:3px 6px;margin-top:2px;font-size:11px\">"+esc(ag.agenda)+"</div></div>";
+    }
+    tiles+="<div id=\"tl"+i+"\" style=\"border-radius:8px;padding:9px;margin-bottom:6px;border:1px solid "+(on?ag.color:"#1e2235")+";background:"+(on?ag.color+"22":"transparent")+";cursor:pointer\">"
+      +"<div style=\"display:flex;align-items:center;gap:8px\"><span style=\"font-size:18px\">"+ag.emoji+"</span>"
+      +"<div style=\"flex:1;min-width:0\"><div style=\"color:#fff;font-size:13px;font-weight:600\">"+esc(ag.name)+"</div>"
+      +"<div style=\"color:"+ag.color+";font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\">"+mc(ag.model).label+"</div></div>"+blink+"</div>"+peekHtml+"</div>";
+  });
+
+  var chat="";
+  if(!S.msgs.length)chat="<div style=\"text-align:center;color:#475569;margin-top:60px\"><div style=\"font-size:40px;margin-bottom:8px\">&#128172;</div>Click an agent or use Auto Play</div>";
+  S.msgs.forEach(function(m){
+    if(m.mod){
+      chat+="<div style=\"text-align:center;margin-bottom:10px\"><span style=\"background:#1e2235;border:1px solid #2d3149;border-radius:20px;padding:5px 14px;color:#94a3b8;font-size:13px\"><b>You:</b> "+esc(m.text)+"</span></div>";
+    }else{
+      var badge=mc(m.model).p==="anthropic"
+        ?"<span style=\"font-size:10px;padding:2px 5px;border-radius:6px;background:#7c3aed33;color:#c4b5fd\">Anthropic</span>"
+        :"<span style=\"font-size:10px;padding:2px 5px;border-radius:6px;background:#10a37f22;color:#6ee7b7\">OpenAI</span>";
+      chat+="<div style=\"display:flex;gap:10px;margin-bottom:14px\">"
+        +"<div style=\"width:36px;height:36px;border-radius:50%;background:"+m.color+"22;border:2px solid "+m.color+";display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0\">"+m.emoji+"</div>"
+        +"<div style=\"flex:1\"><div style=\"font-size:11px;color:#475569;margin-bottom:3px\"><b style=\"color:"+m.color+"\">"+esc(m.name)+"</b> "+badge+" "+m.ts+"</div>"
+        +"<div style=\"background:#1a1d2e;border:1px solid "+m.color+"33;border-radius:4px 12px 12px 12px;padding:10px 14px;font-size:14px;line-height:1.5\">"+esc(m.text)+"</div></div></div>";
+    }
+  });
+  if(S.thinking){
+    var tg=S.agents.find(function(a){return a.id===S.thinking;});
+    if(tg)chat+="<div style=\"display:flex;gap:10px;margin-bottom:14px\">"
+      +"<div style=\"width:36px;height:36px;border-radius:50%;background:"+tg.color+"22;border:2px solid "+tg.color+";display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0\">"+tg.emoji+"</div>"
+      +"<div style=\"background:#1a1d2e;border-radius:4px 12px 12px 12px;padding:12px 16px;display:inline-flex;gap:5px;align-items:center\">"
+      +"<span style=\"width:7px;height:7px;border-radius:50%;background:"+tg.color+";animation:bounce 1s 0s infinite;display:inline-block\"></span>"
+      +"<span style=\"width:7px;height:7px;border-radius:50%;background:"+tg.color+";animation:bounce 1s 0.2s infinite;display:inline-block\"></span>"
+      +"<span style=\"width:7px;height:7px;border-radius:50%;background:"+tg.color+";animation:bounce 1s 0.4s infinite;display:inline-block\"></span>"
+      +"</div></div>";
+  }
+
+  return "<div style=\"height:100vh;display:flex;flex-direction:column;overflow:hidden\">"
+    +"<div style=\"background:#1a1d2e;border-bottom:1px solid #2d3149;padding:10px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0\">"
+    +"<button id=\"backBtn\" style=\"background:#1e2235;border:1px solid #2d3149;color:#94a3b8;padding:5px 10px;font-size:12px\">Back</button>"
+    +"<span style=\"color:#fff;font-weight:700;font-size:15px\">Agent Arena</span>"
+    +(S.goal?"<div style=\"flex:1;font-size:12px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\">Goal: "+esc(S.goal)+"</div>":"<div style=\"flex:1\"></div>")
+    +"<button id=\"resetBtn\" style=\"background:#1e2235;border:1px solid #2d3149;color:#94a3b8;padding:5px 10px;font-size:12px\">Reset</button>"
+    +"</div>"
+    +"<div style=\"flex:1;display:flex;overflow:hidden\">"
+    +"<div style=\"width:190px;background:#13151f;border-right:1px solid #1e2235;padding:10px;overflow-y:auto;flex-shrink:0\">"
+    +"<div style=\"color:#475569;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px\">Agents</div>"
+    +tiles
+    +"<div style=\"margin-top:10px;border-top:1px solid #1e2235;padding-top:10px\">"
+    +"<button id=\"nextBtn\" style=\"width:100%;padding:9px;border-radius:8px;margin-bottom:6px;background:"+(S.busy?"#2d3149":"linear-gradient(135deg,"+nxt.color+","+nxt.color+"bb)")+";color:#fff;border:none;font-size:12px;font-weight:600\">"+(S.busy?"Thinking...":"Next: "+esc(nxt.name))+"</button>"
+    +"<button id=\"autoBtn\" style=\"width:100%;padding:9px;border-radius:8px;background:"+(S.auto?"#ef444422":"#1e2235")+";color:"+(S.auto?"#ef4444":"#94a3b8")+";border:1px solid "+(S.auto?"#ef4444":"#2d3149")+";font-size:12px;font-weight:600\">"+(S.auto?"Stop Auto":"Auto Play")+"</button>"
+    +"</div></div>"
+    +"<div style=\"flex:1;display:flex;flex-direction:column;overflow:hidden\">"
+    +"<div id=\"chatBox\" style=\"flex:1;overflow-y:auto;padding:16px 20px\">"+chat+"<div id=\"cb\"></div></div>"
+    +"<div style=\"background:#13151f;border-top:1px solid #1e2235;padding:12px 16px;display:flex;gap:8px;flex-shrink:0\">"
+    +"<input id=\"steerInput\" placeholder=\"Inject as moderator... Enter to send\" style=\"flex:1;padding:10px 12px;border-radius:8px;margin:0\"/>"
+    +"<button id=\"injectBtn\" style=\"background:#6366f1;color:#fff;padding:10px 16px;font-size:13px;font-weight:600\">Inject</button>"
+    +"</div></div></div></div>";
+}
+
+function bind(){
+  if(S.screen==="setup"){
+    var ab=ge("addBtn");
+    if(ab)ab.onclick=function(){saveInputs();var i=S.agents.length;S.agents.push({id:Date.now(),name:"Agent "+(i+1),model:"gpt-4o",persona:"Analytical.",agenda:"",color:COLS[i%COLS.length],emoji:EMOJIS[i%EMOJIS.length]});render();};
+    var lb=ge("launchBtn");
+    if(lb)lb.onclick=function(){saveInputs();S.msgs=[];S.curIdx=0;S.busy=false;S.auto=false;S.thinking=null;S.peeks={};if(autoTmr){clearTimeout(autoTmr);autoTmr=null;}S.screen="arena";render();};
+    S.agents.forEach(function(ag){
+      var db=ge("del"+ag.id);if(db)db.onclick=function(){saveInputs();S.agents=S.agents.filter(function(a){return a.id!==ag.id;});render();};
+      var ms=ge("m"+ag.id);if(ms)ms.onchange=function(){saveInputs();render();};
+    });
+  }else{
+    var bb=ge("backBtn");if(bb)bb.onclick=function(){S.auto=false;S.screen="setup";if(autoTmr){clearTimeout(autoTmr);autoTmr=null;}render();};
+    var rb=ge("resetBtn");if(rb)rb.onclick=function(){S.msgs=[];S.curIdx=0;S.busy=false;S.auto=false;S.thinking=null;if(autoTmr){clearTimeout(autoTmr);autoTmr=null;}render();};
+    var nb=ge("nextBtn");if(nb)nb.onclick=function(){if(!S.busy)go(S.curIdx);};
+    var atb=ge("autoBtn");if(atb)atb.onclick=function(){S.auto=!S.auto;if(S.auto&&!S.busy)go(S.curIdx);else if(!S.auto&&autoTmr){clearTimeout(autoTmr);autoTmr=null;}render();};
+    var ij=ge("injectBtn");if(ij)ij.onclick=inject;
+    var si=ge("steerInput");if(si)si.onkeydown=function(e){if(e.key==="Enter")inject();};
+    S.agents.forEach(function(ag,i){
+      var tl=ge("tl"+i);if(tl)tl.onclick=(function(idx){return function(){if(!S.busy)go(idx);};})(i);
+      var pkl=ge("pkl"+ag.id);
+      if(pkl)pkl.onclick=function(e){e.stopPropagation();S.peeks[ag.id]=!S.peeks[ag.id];var pkv=ge("pkv"+ag.id);if(pkv)pkv.style.display=S.peeks[ag.id]?"block":"none";pkl.textContent=S.peeks[ag.id]?"hide":"peek";};
+    });
+    setTimeout(function(){var e=ge("cb");if(e)e.scrollIntoView({behavior:"smooth"});},50);
+  }
+}
+
+function inject(){
+  var si=ge("steerInput");if(!si||!si.value.trim())return;
+  S.msgs.push({id:Date.now(),aid:"mod",name:"You",color:"#94a3b8",emoji:"",model:"",text:si.value.trim(),ts:new Date().toLocaleTimeString(),mod:true});
+  si.value="";render();setTimeout(function(){var e=ge("cb");if(e)e.scrollIntoView({behavior:"smooth"});},50);
+}
+
+function buildPrompt(ag){
+  var p="You are "+ag.name+", an AI in a live multi-agent discussion.\nPersonality: "+(ag.persona||"Direct.");
+  if(S.goal)p+="\nSHARED GOAL: "+S.goal;
+  if(ag.agenda)p+="\nYOUR SECRET AGENDA (never reveal directly): "+ag.agenda;
+  p+="\n\nReply in 2-4 sentences. Address other agents by name. Stay in character.";
+  return p;
+}
+
+function getHist(aid){
+  return S.msgs.map(function(m){return{role:m.aid===aid?"assistant":"user",content:m.mod?"[Moderator]: "+m.text:m.name+": "+m.text};});
+}
+
+async function callOAI(model,sys,h){
+  var r=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+OAI},body:JSON.stringify(Object.assign({model:model,messages:[{role:"system",content:sys}].concat(h),max_completion_tokens:300},model.startsWith("o")? {} : {temperature:0.9}))});
+  var d=await r.json();if(!r.ok)throw new Error((d&&d.error&&d.error.message)||"OpenAI "+r.status);var txt=d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content;return txt||"[no response]";
+}
+
+async function callANT(model,sys,h){
+  var c=[];h.forEach(function(m){if(!c.length&&m.role!=="user")return;if(c.length&&c[c.length-1].role===m.role)c[c.length-1].content+="\n"+m.content;else c.push({role:m.role,content:m.content});});
+  if(!c.length)c.push({role:"user",content:"Begin."});
+  var r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":ANT,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:model,system:sys,messages:c,max_tokens:300})});
+  var d=await r.json();if(!r.ok)throw new Error((d&&d.error&&d.error.message)||JSON.stringify(d));return(d.content&&d.content[0]&&d.content[0].text)||"";
+}
+
+async function go(i){
+  if(S.busy)return;
+  S.busy=true;var ag=S.agents[i%S.agents.length];S.thinking=ag.id;
+  render();setTimeout(function(){var e=ge("cb");if(e)e.scrollIntoView({behavior:"smooth"});},50);
+  try{
+    var reply=mc(ag.model).p==="anthropic"?await callANT(ag.model,buildPrompt(ag),getHist(ag.id)):await callOAI(ag.model,buildPrompt(ag),getHist(ag.id));
+    S.msgs.push({id:Date.now(),aid:ag.id,name:ag.name,color:ag.color,emoji:ag.emoji,model:ag.model,text:reply,ts:new Date().toLocaleTimeString(),mod:false});
+    S.curIdx=(i+1)%S.agents.length;
+  }catch(e){
+    S.msgs.push({id:Date.now(),aid:"err",name:"Error",color:"#ef4444",emoji:"!",model:"",text:e.message,ts:new Date().toLocaleTimeString(),mod:false});
+  }
+  S.thinking=null;S.busy=false;
+  render();setTimeout(function(){var e=ge("cb");if(e)e.scrollIntoView({behavior:"smooth"});},50);
+  if(S.auto)autoTmr=setTimeout(function(){go(S.curIdx);},1500);
+}
+
+document.addEventListener("DOMContentLoaded",function(){render();});
+</script>
+</body>
+</html>
